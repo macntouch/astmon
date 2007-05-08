@@ -19,6 +19,67 @@
 
 ASTERISK_FILE_VERSION(__FILE__, "$Revision: 48958 $")
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <dirent.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <sys/time.h>
+#include <sys/signal.h>
+#include <signal.h>
+#include <string.h>
+#include <strings.h>
+#include <errno.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <regex.h>
+
+#include "asterisk/zapata.h"
+
+#include "asterisk/lock.h"
+#include "asterisk/frame.h" 
+#include "asterisk/channel.h"
+#include "asterisk/logger.h"
+#include "asterisk/module.h"
+#include "asterisk/pbx.h"
+#include "asterisk/sched.h"
+#include "asterisk/io.h"
+#include "asterisk/config.h"
+#include "asterisk/options.h"
+#include "asterisk/cli.h"
+#include "asterisk/translate.h"
+#include "asterisk/md5.h"
+#include "asterisk/cdr.h"
+#include "asterisk/crypto.h"
+#include "asterisk/acl.h"
+#include "asterisk/manager.h"
+#include "asterisk/callerid.h"
+#include "asterisk/app.h"
+#include "asterisk/astdb.h"
+#include "asterisk/musiconhold.h"
+#include "asterisk/features.h"
+#include "asterisk/utils.h"
+#include "asterisk/causes.h"
+#include "asterisk/localtime.h"
+#include "asterisk/aes.h"
+#include "asterisk/dnsmgr.h"
+#include "asterisk/devicestate.h"
+#include "asterisk/netsock.h"
+#include "asterisk/stringfields.h"
+#include "asterisk/linkedlists.h"
+#include "asterisk/event.h"
+
+#include "../../channels/iax2.h"
+#include "../../channels/iax2-parser.h"
+#include "../../channels/iax2-provision.h"
+
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include <net-snmp/agent/net-snmp-agent-includes.h>
@@ -29,6 +90,8 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 48958 $")
 #include "asterisk/indications.h"
 #include "asterisk/version.h"
 #include "asterisk/pbx.h"
+#include "asterisk/cli.h"
+#include "../../channels/iax2.h"  /* We need to know a couple variables in there such as IAX_MAX_CALLS */
 
 /* Colission between Net-SNMP and Asterisk */
 #define unload_module ast_unload_module
@@ -84,11 +147,11 @@ static oid asterisk_oid[] = { 1, 3, 6, 1, 4, 1, 22736, 1 };
 
 #define	ASTCHANNELS			5
 #define		ASTCHANCOUNT			1
-#define			ASTCHANCOUNT_IAX		1
-#define			ASTCHANCOUNT_SIP		2
-#define			ASTCHANCOUNT_ZAP		3
-#define			ASTCHANCOUNT_H323		4
-#define			ASTCHANCOUNT_PRI		5
+#define			ASTCHANCOUNT_IAX		2
+#define			ASTCHANCOUNT_SIP		3
+#define			ASTCHANCOUNT_ZAP		4
+#define			ASTCHANCOUNT_H323		5
+#define			ASTCHANCOUNT_PRI		6
 
 
 #define		ASTCHANTABLE			2
@@ -185,6 +248,8 @@ ast_var_channels(struct variable *vp, oid *name, size_t *length,
 				 int exact, size_t *var_len, WriteMethod **write_method)
 {
     static unsigned long long_ret;
+    int numchans = 0;
+    int x = 0;
 
     if (header_generic(vp, name, length, exact, var_len, write_method))
 		return NULL;
@@ -194,10 +259,19 @@ ast_var_channels(struct variable *vp, oid *name, size_t *length,
 		long_ret = ast_active_channels();
 		return (u_char *)&long_ret;
 	case ASTCHANCOUNT_IAX:
-		long_ret = iax2_show_channels();
-		return (u char *)&long_ret;
+		long_ret = ast_active_channels();
+    		static struct chan_iax2_pvt *iaxs[IAX_MAX_CALLS]; /* Why declare this struct if we arent even going to use it? bad practice not to? XXX */
+		ast_mutex_t iaxsl[IAX_MAX_CALLS];
+		for (x=0;x<IAX_MAX_CALLS;x++) {
+			ast_mutex_lock(&iaxsl[x]);
+			if (iaxs[x]) {
+				numchans++;
+			}
+			ast_mutex_unlock(&iaxsl[x]);
+		}
+		return (u_char *)numchans;
 	default:
-		break;
+	break;
     }
     return NULL;
 }
