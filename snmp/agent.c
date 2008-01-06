@@ -729,6 +729,28 @@ static u_char *ast_var_Version(struct variable *vp, oid *name, size_t *length,
     return NULL;
 }
 
+static u_char *ast_var_bkruse(struct variable *vp, oid *name, size_t *length,
+							  int exact, size_t *var_len, WriteMethod **write_method)
+{
+    static unsigned long long_ret;
+
+    if (header_generic(vp, name, length, exact, var_len, write_method))
+		return NULL;
+
+    ast_log(LOG_WARNING, "zomgz we are in ast_var_bkruse\n");
+    switch (vp->magic) {
+	case ASTVERSTRING:
+		*var_len = strlen("WWWWWWWWWWWW");
+		return (u_char *)ASTERISK_VERSION;
+	case ASTVERTAG:
+		long_ret = strlen("WWWWWWWWWWWW");
+		return (u_char *)&long_ret;
+	default:
+		break;
+    }
+    return NULL;
+}
+
 static int term_asterisk_mib(int majorID, int minorID, void *serverarg, void *clientarg)
 {
     unregister_sysORTable(asterisk_oid, OID_LENGTH(asterisk_oid));
