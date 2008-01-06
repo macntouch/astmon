@@ -10,55 +10,54 @@
 /*! \file
  *
  * \brief SNMP Agent / SubAgent support for Asterisk
- *  Multiple Features Added by Brandon Kruse <admteamkruz@gmail.com>
  *
  * \author Thorsten Lockert <tholo@voop.as>
- * \author Brandon Kruse <admteamkruz@gmail.com>
  */
 
 #include "asterisk.h"
 
-ASTERISK_FILE_VERSION(__FILE__, "$Revision: 80510 $")
+ASTERISK_FILE_VERSION(__FILE__, "$Revision: 96743 $")
+
+/*
+ * There is some collision collision between netsmp and asterisk names,
+ * causing build under AST_DEVMODE to fail.
+ *
+ * The following PACKAGE_* macros are one place.
+ * Also netsnmp has an improper check for HAVE_DMALLOC_H, using
+ *    #if HAVE_DMALLOC_H   instead of #ifdef HAVE_DMALLOC_H
+ * As a countermeasure we define it to 0, however this will fail
+ * when the proper check is implemented.
+ */
+#ifdef PACKAGE_NAME
+#undef PACKAGE_NAME
+#endif
+#ifdef PACKAGE_BUGREPORT
+#undef PACKAGE_BUGREPORT
+#endif
+#ifdef PACKAGE_STRING
+#undef PACKAGE_STRING
+#endif
+#ifdef PACKAGE_TARNAME
+#undef PACKAGE_TARNAME
+#endif
+#ifdef PACKAGE_VERSION
+#undef PACKAGE_VERSION
+#endif
+#ifndef HAVE_DMALLOC_H
+#define HAVE_DMALLOC_H 0	/* XXX we shouldn't do this */
+#endif
 
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include <net-snmp/agent/net-snmp-agent-includes.h>
 
+#include "asterisk/paths.h"	/* need ast_config_AST_SOCKET */
 #include "asterisk/channel.h"
 #include "asterisk/logger.h"
 #include "asterisk/options.h"
 #include "asterisk/indications.h"
 #include "asterisk/version.h"
 #include "asterisk/pbx.h"
-
-#include "asterisk/zapata.h"
-
-#include "asterisk/pbx.h"
-#include "asterisk/frame.h"
-#include "asterisk/sched.h"
-#include "asterisk/options.h"
-#include "asterisk/channel.h"
-#include "asterisk/chanspy.h"
-#include "asterisk/musiconhold.h"
-#include "asterisk/logger.h"
-#include "asterisk/say.h"
-#include "asterisk/file.h"
-#include "asterisk/cli.h"
-#include "asterisk/translate.h"
-#include "asterisk/manager.h"
-#include "asterisk/chanvars.h"
-#include "asterisk/linkedlists.h"
-#include "asterisk/indications.h"
-#include "asterisk/monitor.h"
-#include "asterisk/causes.h"
-#include "asterisk/callerid.h"
-#include "asterisk/utils.h"
-#include "asterisk/lock.h"
-#include "asterisk/app.h"
-#include "asterisk/transcap.h"
-#include "asterisk/devicestate.h"
-#include "asterisk/sha1.h"
-#include "asterisk/threadstorage.h"
 
 /* Colission between Net-SNMP and Asterisk */
 #define unload_module ast_unload_module
@@ -72,9 +71,6 @@ int header_generic(struct variable *, oid *, size_t *, int, size_t *, WriteMetho
 int header_simple_table(struct variable *, oid *, size_t *, int, size_t *, WriteMethod **, int);
 int register_sysORTable(oid *, size_t, const char *);
 int unregister_sysORTable(oid *, size_t);
-
-/* Not defined in header files */
-extern char ast_config_AST_SOCKET[];
 
 /* Forward declaration */
 static void init_asterisk_mib(void);
@@ -96,54 +92,45 @@ static oid asterisk_oid[] = { 1, 3, 6, 1, 4, 1, 22736, 1 };
 #define	ASTCONFIGURATION		2
 #define		ASTCONFUPTIME			1
 #define		ASTCONFRELOADTIME		2
-#define		ASTCONFPID			3
+#define		ASTCONFPID				3
 #define		ASTCONFSOCKET			4
+#define		ASTCONFACTIVECALLS	5
+#define		ASTCONFPROCESSEDCALLS   6
 
 #define	ASTMODULES				3
 #define		ASTMODCOUNT				1
 
 #define	ASTINDICATIONS			4
-#define		ASTINDCOUNT			1
+#define		ASTINDCOUNT				1
 #define		ASTINDCURRENT			2
 
-#define		ASTINDTABLE			3
-#define			ASTINDINDEX			1
+#define		ASTINDTABLE				3
+#define			ASTINDINDEX				1
 #define			ASTINDCOUNTRY			2
-#define			ASTINDALIAS			3
+#define			ASTINDALIAS				3
 #define			ASTINDDESCRIPTION		4
 
-#define	ASTCHANNELS			5
-#define			ASTCHANCOUNT_IAX		1
-#define			ASTCHANCOUNT_SIP		2
-#define			ASTCHANCOUNT_SKINNY		3
-#define			ASTCHANCOUNT_FEATURE		4
-#define			ASTCHANCOUNT_MGCP		5
-#define			ASTCHANCOUNT_ZAP		6
-#define			ASTCHANCOUNT_LOCAL		7
-#define			ASTCHANCOUNT_CONSOLE		8
-#define			ASTCHANCOUNT_AGENT		9
-#define			ASTCHANCOUNT_H323		10
-#define			ASTCHANCOUNT			11
-
+#define	ASTCHANNELS				5
+#define		ASTCHANCOUNT			1
 
 #define		ASTCHANTABLE			2
 #define			ASTCHANINDEX			1
-#define			ASTCHANNAME			2
+#define			ASTCHANNAME				2
 #define			ASTCHANLANGUAGE			3
-#define			ASTCHANTYPE			4
+#define			ASTCHANTYPE				4
 #define			ASTCHANMUSICCLASS		5
 #define			ASTCHANBRIDGE			6
-#define			ASTCHANMASQ			7
+#define			ASTCHANMASQ				7
 #define			ASTCHANMASQR			8
 #define			ASTCHANWHENHANGUP		9
-#define			ASTCHANAPP			10
-#define			ASTCHANDATA			11
+#define			ASTCHANAPP				10
+#define			ASTCHANDATA				11
 #define			ASTCHANCONTEXT			12
 #define			ASTCHANMACROCONTEXT		13
 #define			ASTCHANMACROEXTEN		14
 #define			ASTCHANMACROPRI			15
 #define			ASTCHANEXTEN			16
-#define			ASTCHANPRI			17
+#define			ASTCHANPRI				17
 #define			ASTCHANACCOUNTCODE		18
 #define			ASTCHANFORWARDTO		19
 #define			ASTCHANUNIQUEID			20
@@ -162,7 +149,7 @@ static oid asterisk_oid[] = { 1, 3, 6, 1, 4, 1, 22736, 1 };
 #define			ASTCHANCIDTON			33
 #define			ASTCHANCIDTNS			34
 #define			ASTCHANAMAFLAGS			35
-#define			ASTCHANADSI			36
+#define			ASTCHANADSI				36
 #define			ASTCHANTONEZONE			37
 #define			ASTCHANHANGUPCAUSE		38
 #define			ASTCHANVARIABLES		39
@@ -176,7 +163,7 @@ static oid asterisk_oid[] = { 1, 3, 6, 1, 4, 1, 22736, 1 };
 #define			ASTCHANTYPENAME			2
 #define			ASTCHANTYPEDESC			3
 #define			ASTCHANTYPEDEVSTATE		4
-#define			ASTCHANTYPEINDICATIONS		5
+#define			ASTCHANTYPEINDICATIONS	5
 #define			ASTCHANTYPETRANSFER		6
 #define			ASTCHANTYPECHANNELS		7
 
@@ -185,7 +172,7 @@ static oid asterisk_oid[] = { 1, 3, 6, 1, 4, 1, 22736, 1 };
 
 void *agent_thread(void *arg)
 {
-	ast_verbose(VERBOSE_PREFIX_2 "Starting %sAgent\n", res_snmp_agentx_subagent ? "Sub" : "");
+	ast_verb(2, "Starting %sAgent\n", res_snmp_agentx_subagent ? "Sub" : "");
 
 	snmp_enable_stderrlog();
 
@@ -208,8 +195,7 @@ void *agent_thread(void *arg)
 
 	snmp_shutdown("asterisk");
 
-	ast_verbose(VERBOSE_PREFIX_2 "Terminating %sAgent\n",
-				res_snmp_agentx_subagent ? "Sub" : "");
+	ast_verb(2, "Terminating %sAgent\n", res_snmp_agentx_subagent ? "Sub" : "");
 
 	return NULL;
 }
@@ -219,126 +205,14 @@ ast_var_channels(struct variable *vp, oid *name, size_t *length,
 				 int exact, size_t *var_len, WriteMethod **write_method)
 {
 	static unsigned long long_ret;
-	struct ast_channel *c = NULL;
-	int numchans = 0;
-
 
 	if (header_generic(vp, name, length, exact, var_len, write_method))
 		return NULL;
 
-    switch (vp->magic) {
-	case ASTCHANCOUNT:
-		long_ret = ast_active_channels();
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_IAX:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "IAX2", 4)) { /* sweet, we have a chan_iax */
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_SIP:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "SIP", 3)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_SKINNY:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "Skinny", 6)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_FEATURE:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "Feature", 7)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_MGCP:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "MGCP", 4)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_ZAP:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "zap", 3)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_LOCAL:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "Local", 5)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_CONSOLE:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "Console", 6)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_AGENT:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "Agent", 5)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	case ASTCHANCOUNT_H323:
-		while ((c = ast_channel_walk_locked(c)) != NULL) {
-			if(!strncmp(c->tech->type, "h323", 4)) { 
-				numchans++;		
-			}
-			ast_channel_unlock(c);
-		}
-		long_ret = numchans;
-		return (u_char *)&long_ret;
-
-	default:
-		break;
-    }
 	if (vp->magic != ASTCHANCOUNT)
 		return NULL;
 
-	if(!long_ret)
-		return 0;
+	long_ret = ast_active_channels();
 
 	return (u_char *)&long_ret;
 }
@@ -746,6 +620,12 @@ static u_char *ast_var_Config(struct variable *vp, oid *name, size_t *length,
 	case ASTCONFSOCKET:
 		*var_len = strlen(ast_config_AST_SOCKET);
 		return (u_char *)ast_config_AST_SOCKET;
+	case ASTCONFACTIVECALLS:
+		long_ret = ast_active_calls();
+		return (u_char *)&long_ret;
+	case ASTCONFPROCESSEDCALLS:
+		long_ret = ast_processed_calls();
+		return (u_char *)&long_ret;
 	default:
 		break;
 	}
@@ -851,10 +731,13 @@ static u_char *ast_var_Version(struct variable *vp, oid *name, size_t *length,
 
 	switch (vp->magic) {
 	case ASTVERSTRING:
-		*var_len = strlen(ASTERISK_VERSION);
-		return (u_char *)ASTERISK_VERSION;
+	{
+		const char *version = ast_get_version();
+		*var_len = strlen(version);
+		return (u_char *)version;
+	}
 	case ASTVERTAG:
-		long_ret = ASTERISK_VERSION_NUM;
+		sscanf(ast_get_version_num(), "%lu", &long_ret);
 		return (u_char *)&long_ret;
 	default:
 		break;
@@ -873,6 +756,12 @@ static void init_asterisk_mib(void)
 	static struct variable4 asterisk_vars[] = {
 		{ASTVERSTRING,           ASN_OCTET_STR, RONLY, ast_var_Version,             2, {ASTVERSION, ASTVERSTRING}},
 		{ASTVERTAG,              ASN_UNSIGNED,  RONLY, ast_var_Version,             2, {ASTVERSION, ASTVERTAG}},
+		{ASTCONFUPTIME,          ASN_TIMETICKS, RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFUPTIME}},
+		{ASTCONFRELOADTIME,      ASN_TIMETICKS, RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFRELOADTIME}},
+		{ASTCONFPID,             ASN_INTEGER,   RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFPID}},
+		{ASTCONFSOCKET,          ASN_OCTET_STR, RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFSOCKET}},
+		{ASTCONFACTIVECALLS,     ASN_GAUGE,   	RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFACTIVECALLS}},
+		{ASTCONFPROCESSEDCALLS,  ASN_INTEGER,   RONLY, ast_var_Config,              2, {ASTCONFIGURATION, ASTCONFPROCESSEDCALLS}},
 		{ASTMODCOUNT,            ASN_INTEGER,   RONLY, ast_var_Modules ,            2, {ASTMODULES, ASTMODCOUNT}},
 		{ASTINDCOUNT,            ASN_INTEGER,   RONLY, ast_var_indications,         2, {ASTINDICATIONS, ASTINDCOUNT}},
 		{ASTINDCURRENT,          ASN_OCTET_STR, RONLY, ast_var_indications,         2, {ASTINDICATIONS, ASTINDCURRENT}},
@@ -881,16 +770,6 @@ static void init_asterisk_mib(void)
 		{ASTINDALIAS,            ASN_OCTET_STR, RONLY, ast_var_indications_table,   4, {ASTINDICATIONS, ASTINDTABLE, 1, ASTINDALIAS}},
 		{ASTINDDESCRIPTION,      ASN_OCTET_STR, RONLY, ast_var_indications_table,   4, {ASTINDICATIONS, ASTINDTABLE, 1, ASTINDDESCRIPTION}},
 		{ASTCHANCOUNT,           ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT}},
-		{ASTCHANCOUNT_IAX,       ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_IAX}},
-		{ASTCHANCOUNT_SIP,       ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_SIP}},
-		{ASTCHANCOUNT_SKINNY,    ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_SKINNY}},
-		{ASTCHANCOUNT_FEATURE,   ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_FEATURE}},
-		{ASTCHANCOUNT_MGCP,      ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_MGCP}},
-		{ASTCHANCOUNT_ZAP,       ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_ZAP}},
-		{ASTCHANCOUNT_LOCAL,     ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_LOCAL}},
-		{ASTCHANCOUNT_CONSOLE,   ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_CONSOLE}},
-		{ASTCHANCOUNT_AGENT,     ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_AGENT}},
-		{ASTCHANCOUNT_H323,      ASN_INTEGER,   RONLY, ast_var_channels,            2, {ASTCHANNELS, ASTCHANCOUNT_H323}},
 		{ASTCHANINDEX,           ASN_INTEGER,   RONLY, ast_var_channels_table,      4, {ASTCHANNELS, ASTCHANTABLE, 1, ASTCHANINDEX}},
 		{ASTCHANNAME,            ASN_OCTET_STR, RONLY, ast_var_channels_table,      4, {ASTCHANNELS, ASTCHANTABLE, 1, ASTCHANNAME}},
 		{ASTCHANLANGUAGE,        ASN_OCTET_STR, RONLY, ast_var_channels_table,      4, {ASTCHANNELS, ASTCHANTABLE, 1, ASTCHANLANGUAGE}},
