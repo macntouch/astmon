@@ -11,8 +11,7 @@
  *
  * \brief SNMP Agent / SubAgent support for Asterisk
  *
- * \author Thorsten Lockert <tholo@voop.as> 
- *  Multiple Features Added by Brandon Kruse <admteamkruz@gmail.com>
+ * \author Thorsten Lockert <tholo@voop.as>
  *
  * \extref Uses the Net-SNMP libraries available at
  *	 http://net-snmp.sourceforge.net/
@@ -24,12 +23,10 @@
 
 #include "asterisk.h"
 
-ASTERISK_FILE_VERSION(__FILE__, "$Revision: 79747 $")
+ASTERISK_FILE_VERSION(__FILE__, "$Revision: 89511 $")
 
 #include "asterisk/channel.h"
 #include "asterisk/module.h"
-#include "asterisk/logger.h"
-#include "asterisk/options.h"
 
 #include "snmp/agent.h"
 
